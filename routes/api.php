@@ -17,10 +17,3 @@ Route::prefix('v1')->group(function () {
     Route::apiResource('progress', CustomerProgressController::class)
         ->only(['store', 'update', 'destroy']);
 });
-
-
-Route::get('/emails', [EmailController::class, 'index']);
-Route::get('/emails/{id}', [EmailController::class, 'show']);
-Route::post('/emails', [EmailController::class, 'store']);
-Route::put('/emails/{id}/read', [EmailController::class, 'markAsRead']);
-Route::delete('/emails/{id}', [EmailController::class, 'destroy']);
