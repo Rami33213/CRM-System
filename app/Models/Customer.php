@@ -24,4 +24,13 @@ class Customer extends Model
     {
         return $this->hasMany(CustomerProgress::class);
     }
+    public function messages(): HasMany
+    {
+        return $this->hasMany(Message::class);
+    }
+
+    public function emails(): HasMany
+    {
+        return $this->hasMany(Email::class);
+    }
 }
