@@ -3,8 +3,8 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Order extends Model
@@ -15,66 +15,40 @@ class Order extends Model
         'customer_id',
         'order_number',
         'status',
-        'payment_status',
-        'source',
         'subtotal',
-        'tax_rate',
-        'tax_amount',
-        'discount_amount',
+        'discount',
+        'tax',
         'total',
-        'order_date',
-        'expected_delivery_date',
-        'actual_delivery_date',
+        'payment_status',
+        'paid_amount',
         'notes',
-        'customer_requirements',
         'internal_notes',
-        'created_by',
-        'assigned_to'
+        'source',
+        'expected_delivery_date',
+        'actual_delivery_date'
     ];
 
     protected $casts = [
-        'order_date' => 'date',
-        'expected_delivery_date' => 'date',
-        'actual_delivery_date' => 'date',
         'subtotal' => 'decimal:2',
-        'tax_rate' => 'decimal:2',
-        'tax_amount' => 'decimal:2',
-        'discount_amount' => 'decimal:2',
-        'total' => 'decimal:2'
+        'discount' => 'decimal:2',
+        'tax' => 'decimal:2',
+        'total' => 'decimal:2',
+        'paid_amount' => 'decimal:2',
+        'expected_delivery_date' => 'date',
+        'actual_delivery_date' => 'date'
     ];
-
-    protected $with = ['items', 'customer'];
 
     protected static function boot()
     {
         parent::boot();
-        
+
         static::creating(function ($order) {
             if (empty($order->order_number)) {
                 $order->order_number = self::generateOrderNumber();
             }
-            if (empty($order->order_date)) {
-                $order->order_date = now();
-            }
         });
     }
 
-    public static function generateOrderNumber(): string
-    {
-        $year = date('Y');
-        $month = date('m');
-        $lastOrder = self::withTrashed()
-                        ->whereYear('created_at', $year)
-                        ->whereMonth('created_at', $month)
-                        ->latest('id')
-                        ->first();
-        
-        $number = $lastOrder ? intval(substr($lastOrder->order_number, -4)) + 1 : 1;
-        
-        return sprintf('ORD-%s%s-%04d', $year, $month, $number);
-    }
-
-    // Relations
     public function customer(): BelongsTo
     {
         return $this->belongsTo(Customer::class);
@@ -85,53 +59,52 @@ class Order extends Model
         return $this->hasMany(OrderItem::class);
     }
 
-    public function creator(): BelongsTo
+    public static function generateOrderNumber(): string
     {
-        return $this->belongsTo(User::class, 'created_by');
+        $year = date('Y');
+        $lastOrder = self::whereYear('created_at', $year)
+            ->orderBy('id', 'desc')
+            ->first();
+
+        $number = $lastOrder ? intval(substr($lastOrder->order_number, -4)) + 1 : 1;
+
+        return 'ORD-' . $year . '-' . str_pad($number, 4, '0', STR_PAD_LEFT);
     }
 
-    public function assignedUser(): BelongsTo
-    {
-        return $this->belongsTo(User::class, 'assigned_to');
-    }
-
-    // Helper Methods
     public function calculateTotals(): void
     {
-        $this->subtotal = $this->items->sum('total_price');
-        $this->tax_amount = ($this->subtotal * $this->tax_rate) / 100;
-        $this->total = $this->subtotal + $this->tax_amount - $this->discount_amount;
+        $this->subtotal = $this->items->sum('subtotal');
+        $this->total = $this->subtotal - $this->discount + $this->tax;
+        
+        if ($this->paid_amount >= $this->total) {
+            $this->payment_status = 'paid';
+        } elseif ($this->paid_amount > 0) {
+            $this->payment_status = 'partially_paid';
+        } else {
+            $this->payment_status = 'unpaid';
+        }
+        
         $this->save();
     }
 
-    public function isPaid(): bool
+    public function getRemainingAmountAttribute(): float
     {
-        return $this->payment_status === 'paid';
+        return max(0, $this->total - $this->paid_amount);
     }
 
-    public function isCompleted(): bool
+    public function isFullyPaid(): bool
     {
-        return $this->status === 'completed';
+        return $this->paid_amount >= $this->total;
     }
 
-    public function getProgressPercentage(): int
+    public function scopeByStatus($query, string $status)
     {
-        $totalItems = $this->items->count();
-        if ($totalItems === 0) return 0;
-        
-        $avgProgress = $this->items->avg('progress_percentage');
-        return round($avgProgress);
+        return $query->where('status', $status);
     }
 
-    // Scopes
     public function scopePending($query)
     {
         return $query->where('status', 'pending');
-    }
-
-    public function scopeInProgress($query)
-    {
-        return $query->where('status', 'in_progress');
     }
 
     public function scopeCompleted($query)
@@ -144,8 +117,8 @@ class Order extends Model
         return $query->where('payment_status', 'unpaid');
     }
 
-    public function scopeByCustomer($query, $customerId)
+    public function scopeBySource($query, string $source)
     {
-        return $query->where('customer_id', $customerId);
+        return $query->where('source', $source);
     }
 }

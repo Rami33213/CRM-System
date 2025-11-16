@@ -9,36 +9,33 @@ class OrderItem extends Model
 {
     protected $fillable = [
         'order_id',
-        'item_type',
-        'description',
+        'service_id',
         'quantity',
         'unit_price',
-        'total_price',
+        'discount',
+        'subtotal',
+        'total',
+        'customization_notes',
         'specifications',
-        'estimated_hours',
-        'deliverables',
-        'status',
-        'progress_percentage',
-        'start_date',
-        'end_date'
+        'status'
     ];
 
     protected $casts = [
         'quantity' => 'integer',
         'unit_price' => 'decimal:2',
-        'total_price' => 'decimal:2',
-        'estimated_hours' => 'integer',
-        'progress_percentage' => 'integer',
-        'start_date' => 'date',
-        'end_date' => 'date'
+        'discount' => 'decimal:2',
+        'subtotal' => 'decimal:2',
+        'total' => 'decimal:2',
+        'specifications' => 'array'
     ];
 
     protected static function boot()
     {
         parent::boot();
-        
+
         static::saving(function ($item) {
-            $item->total_price = $item->quantity * $item->unit_price;
+            $item->subtotal = $item->quantity * $item->unit_price;
+            $item->total = $item->subtotal - $item->discount;
         });
 
         static::saved(function ($item) {
@@ -50,38 +47,33 @@ class OrderItem extends Model
         });
     }
 
-    // Relations
     public function order(): BelongsTo
     {
         return $this->belongsTo(Order::class);
     }
 
-    // Helper Methods
-    public function updateProgress(int $percentage): void
+    public function service(): BelongsTo
     {
-        $this->progress_percentage = min(100, max(0, $percentage));
-        
-        if ($this->progress_percentage === 100) {
-            $this->status = 'completed';
-            $this->end_date = now();
-        } elseif ($this->progress_percentage > 0 && $this->status === 'pending') {
-            $this->status = 'in_progress';
-            $this->start_date = $this->start_date ?? now();
-        }
-        
-        $this->save();
+        return $this->belongsTo(Service::class);
     }
 
-    public function isCompleted(): bool
+    public function getFormattedTotalAttribute(): string
     {
-        return $this->status === 'completed';
+        return number_format($this->total, 2) . ' USD';
     }
 
-    public function getRemainingHours(): ?int
+    public function scopeByStatus($query, string $status)
     {
-        if (!$this->estimated_hours) return null;
-        
-        $completedHours = ($this->estimated_hours * $this->progress_percentage) / 100;
-        return max(0, $this->estimated_hours - $completedHours);
+        return $query->where('status', $status);
+    }
+
+    public function scopePending($query)
+    {
+        return $query->where('status', 'pending');
+    }
+
+    public function scopeCompleted($query)
+    {
+        return $query->where('status', 'completed');
     }
 }

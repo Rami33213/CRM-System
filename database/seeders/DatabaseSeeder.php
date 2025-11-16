@@ -2,24 +2,25 @@
 
 namespace Database\Seeders;
 
-use App\Models\User;
-use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
 
 class DatabaseSeeder extends Seeder
 {
-    use WithoutModelEvents;
-
     /**
      * Seed the application's database.
      */
     public function run(): void
     {
-        // User::factory(10)->create();
-        
-        User::factory()->create([
-            'name' => 'Test User',
-            'email' => 'test@example.com',
+        $this->call([
+            CustomerOrderSeeder::class,
         ]);
+
+        echo "\n✅ تم تعبئة قاعدة البيانات بنجاح!\n";
+        echo "📊 البيانات المضافة:\n";
+        echo "   - 3 تصنيفات عملاء\n";
+        echo "   - 10 خدمات\n";
+        echo "   - 6 عملاء\n";
+        echo "   - عدة طلبات مع عناصرها\n";
+        echo "   - طلب مثالي من الواتساب\n\n";
     }
 }

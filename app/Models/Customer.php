@@ -25,7 +25,7 @@ class Customer extends Model
     {
         return $this->hasMany(CustomerProgress::class);
     }
-    
+
     public function messages(): HasMany
     {
         return $this->hasMany(Message::class);
@@ -36,51 +36,37 @@ class Customer extends Model
         return $this->hasMany(Email::class);
     }
 
-    // علاقة جديدة مع الطلبات
     public function orders(): HasMany
     {
         return $this->hasMany(Order::class);
     }
 
-    // Helper Methods
-    public function getTotalSpent(): float
+    public function getTotalSpentAttribute(): float
     {
-        return $this->orders()
-                    ->where('payment_status', 'paid')
-                    ->sum('total');
+        return $this->orders()->sum('total');
     }
 
-    public function getOrdersCount(): int
+    public function getTotalOrdersAttribute(): int
     {
         return $this->orders()->count();
     }
 
-    public function getPendingOrdersCount(): int
+    public function getPendingOrdersAttribute(): int
     {
-        return $this->orders()
-                    ->where('status', 'pending')
-                    ->count();
+        return $this->orders()->where('status', 'pending')->count();
     }
 
-    public function getCompletedOrdersCount(): int
+    public function getCompletedOrdersAttribute(): int
     {
-        return $this->orders()
-                    ->where('status', 'completed')
-                    ->count();
+        return $this->orders()->where('status', 'completed')->count();
     }
 
-    public function getUnpaidAmount(): float
+    public function getUnpaidAmountAttribute(): float
     {
         return $this->orders()
-                    ->where('payment_status', 'unpaid')
-                    ->sum('total');
-    }
-
-    public function getLastOrderDate()
-    {
-        return $this->orders()
-                    ->latest('order_date')
-                    ->first()
-                    ?->order_date;
+            ->where('payment_status', '!=', 'paid')
+            ->sum('total') - $this->orders()
+            ->where('payment_status', '!=', 'paid')
+            ->sum('paid_amount');
     }
 }
