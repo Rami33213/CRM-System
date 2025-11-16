@@ -9,6 +9,7 @@ use App\Models\User;
 
 class OrderSeeder extends Seeder
 {
+    
     public function run(): void
     {
         // تأكد من وجود عملاء ومستخدمين
