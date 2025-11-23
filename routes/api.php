@@ -9,7 +9,8 @@ use App\Http\Controllers\Api\EmailController;
 use App\Http\Controllers\order\ServiceController;
 use App\Http\Controllers\order\OrderController;
 use App\Http\Controllers\order\OrderItemController;
-
+use App\Http\Controllers\CustomerDatatableController;
+use App\Http\Controllers\CustomerExportController;
 
 Route::middleware('api')->prefix('v1')->group(function () {
     // Customer Routes
@@ -69,4 +70,39 @@ Route::prefix('orders')->group(function () {
     Route::put('/{orderId}/items/{itemId}', [OrderItemController::class, 'update']); // PUT /api/orders/{orderId}/items/{itemId}
     Route::delete('/{orderId}/items/{itemId}', [OrderItemController::class, 'destroy']); // DELETE /api/orders/{orderId}/items/{itemId}
     Route::patch('/{orderId}/items/{itemId}/status', [OrderItemController::class, 'updateStatus']); // PATCH /api/orders/{orderId}/items/{itemId}/status
+});
+
+
+Route::prefix('customers')->group(function () {
+    
+    // DataTable Endpoints
+    Route::get('/datatable', [CustomerDatatableController::class, 'index']); 
+    // GET /api/customers/datatable
+    // Query Params: search, segment_id, min_score, max_score, date_from, date_to, 
+    //               sort_by, sort_direction, per_page, page
+    
+    Route::get('/datatable/{id}', [CustomerDatatableController::class, 'show']); 
+    // GET /api/customers/datatable/{id} - View customer details with orders
+    
+    Route::post('/datatable/{id}/sync-score', [CustomerDatatableController::class, 'syncScoreFromQuiz']); 
+    // POST /api/customers/datatable/{id}/sync-score - Sync score from quiz
+    
+    Route::post('/datatable/sync-all-scores', [CustomerDatatableController::class, 'syncAllScores']); 
+    // POST /api/customers/datatable/sync-all-scores - Sync all customers scores
+    
+    Route::get('/datatable/stats/overview', [CustomerDatatableController::class, 'statistics']); 
+    // GET /api/customers/datatable/stats/overview - Dashboard statistics
+    
+    // Export Endpoints
+    Route::get('/export/csv', [CustomerExportController::class, 'exportCSV']); 
+    // GET /api/customers/export/csv - Export to CSV
+    
+    Route::get('/export/excel', [CustomerExportController::class, 'exportExcel']); 
+    // GET /api/customers/export/excel - Export to Excel (XLSX)
+    
+    Route::get('/export/json', [CustomerExportController::class, 'exportJSON']); 
+    // GET /api/customers/export/json - Export to JSON
+    
+    Route::get('/export/{id}/details', [CustomerExportController::class, 'exportCustomerDetails']); 
+    // GET /api/customers/export/{id}/details - Export single customer with orders
 });

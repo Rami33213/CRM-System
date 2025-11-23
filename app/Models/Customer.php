@@ -13,7 +13,12 @@ class Customer extends Model
         'name',
         'email',
         'phone',
-        'address'
+        'address',
+        'score'
+    ];
+
+    protected $casts = [
+        'score' => 'decimal:2'
     ];
 
     public function segment(): BelongsTo
@@ -68,5 +73,22 @@ class Customer extends Model
             ->sum('total') - $this->orders()
             ->where('payment_status', '!=', 'paid')
             ->sum('paid_amount');
+    }
+
+    // علاقة مع QuizResult
+    public function quizResult()
+    {
+        return $this->hasOne(QuizResult::class, 'phone', 'phone');
+    }
+
+    // Scope للعملاء حسب النتيجة
+    public function scopeWithHighScore($query, $minScore = 70)
+    {
+        return $query->where('score', '>=', $minScore);
+    }
+
+    public function scopeOrderByScore($query, $direction = 'desc')
+    {
+        return $query->orderBy('score', $direction);
     }
 }
