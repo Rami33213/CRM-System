@@ -10,6 +10,7 @@ class Customer extends Model
 {
     protected $fillable = [
         'customer_segment_id',
+        'employee_id', // إضافة employee_id
         'name',
         'email',
         'phone',
@@ -24,6 +25,12 @@ class Customer extends Model
     public function segment(): BelongsTo
     {
         return $this->belongsTo(CustomerSegment::class, 'customer_segment_id');
+    }
+
+    // علاقة مع Employee
+    public function employee(): BelongsTo
+    {
+        return $this->belongsTo(Employee::class);
     }
 
     public function progress(): HasMany
