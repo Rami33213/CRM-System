@@ -94,8 +94,14 @@ class CustomerDatatableController extends Controller
                 'employee' => $customer->employee ? [
                     'id' => $customer->employee->id,
                     'name' => $customer->employee->name,
-                    'position' => $customer->employee->position
-                ] : null,
+                    'position' => $customer->employee->position,
+                    'status' => 'assigned'
+                ] : [
+                    'id' => null,
+                    'name' => null,
+                    'position' => null,
+                    'status' => 'unassigned'
+                ],
                 'quiz_results' => [
                     'total_score' => $quizStats['total_score'],
                     'percentage' => $quizStats['percentage'],
@@ -173,8 +179,15 @@ class CustomerDatatableController extends Controller
                     'id' => $customer->employee->id,
                     'name' => $customer->employee->name,
                     'position' => $customer->employee->position,
-                    'department' => $customer->employee->department
-                ] : null,
+                    'department' => $customer->employee->department,
+                    'status' => 'assigned'
+                ] : [
+                    'id' => null,
+                    'name' => null,
+                    'position' => null,
+                    'department' => null,
+                    'status' => 'unassigned'
+                ],
                 'quiz_results' => [
                     'total_score' => $quizStats['total_score'],
                     'percentage' => $quizStats['percentage'],
