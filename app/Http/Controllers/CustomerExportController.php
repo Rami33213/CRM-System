@@ -35,9 +35,11 @@ class CustomerExportController extends Controller
                 'Email',
                 'Phone',
                 'Address',
-                'Score',
+                'Quiz Score',
+                'Quiz Grade',
+                'Questions Answered',
                 'Segment',
-                'Quiz Percentage',
+                'Employee',
                 'Total Orders',
                 'Total Spent',
                 'Unpaid Amount',
@@ -46,15 +48,19 @@ class CustomerExportController extends Controller
 
             // Data Rows
             foreach ($customers as $customer) {
+                $quizStats = $customer->quiz_stats;
+                
                 fputcsv($file, [
                     $customer->id,
                     $customer->name,
                     $customer->email,
                     $customer->phone,
                     $customer->address,
-                    $customer->score ?? 'N/A',
+                    $quizStats['total_score'],
+                    $quizStats['grade'],
+                    $quizStats['questions_count'],
                     $customer->segment?->name ?? 'N/A',
-                    $customer->quizResult?->percentage ?? 'N/A',
+                    $customer->employee?->name ?? 'N/A',
                     $customer->total_orders,
                     $customer->total_spent,
                     $customer->unpaid_amount,
@@ -95,19 +101,26 @@ class CustomerExportController extends Controller
         $customers = $this->getFilteredCustomers($request);
 
         $data = $customers->map(function ($customer) {
+            $quizStats = $customer->quiz_stats;
+            
             return [
                 'id' => $customer->id,
                 'name' => $customer->name,
                 'email' => $customer->email,
                 'phone' => $customer->phone,
                 'address' => $customer->address,
-                'score' => $customer->score,
+                'quiz_results' => [
+                    'total_score' => $quizStats['total_score'],
+                    'percentage' => $quizStats['percentage'],
+                    'grade' => $quizStats['grade'],
+                    'questions_count' => $quizStats['questions_count'],
+                    'total_correct_answers' => $quizStats['total_correct_answers'] ?? 0,
+                    'total_wrong_answers' => $quizStats['total_wrong_answers'] ?? 0
+                ],
                 'segment' => $customer->segment?->name,
-                'quiz_result' => $customer->quizResult ? [
-                    'percentage' => $customer->quizResult->percentage,
-                    'grade' => $customer->quizResult->grade,
-                    'user_marks' => $customer->quizResult->user_marks,
-                    'total_marks' => $customer->quizResult->total_marks
+                'employee' => $customer->employee ? [
+                    'id' => $customer->employee->id,
+                    'name' => $customer->employee->name
                 ] : null,
                 'statistics' => [
                     'total_orders' => $customer->total_orders,
@@ -135,9 +148,12 @@ class CustomerExportController extends Controller
     {
         $customer = Customer::with([
             'segment',
-            'quizResult',
+            'employee',
+            'quizResults',
             'orders.items.service'
         ])->findOrFail($id);
+
+        $quizStats = $customer->quiz_stats;
 
         $filename = 'customer_' . $customer->id . '_' . date('Y-m-d_H-i-s') . '.json';
 
@@ -148,17 +164,21 @@ class CustomerExportController extends Controller
                 'email' => $customer->email,
                 'phone' => $customer->phone,
                 'address' => $customer->address,
-                'score' => $customer->score,
-                'segment' => $customer->segment?->name
+                'segment' => $customer->segment?->name,
+                'employee' => $customer->employee ? [
+                    'id' => $customer->employee->id,
+                    'name' => $customer->employee->name
+                ] : null
             ],
-            'quiz_result' => $customer->quizResult ? [
-                'percentage' => $customer->quizResult->percentage,
-                'grade' => $customer->quizResult->grade,
-                'user_marks' => $customer->quizResult->user_marks,
-                'total_marks' => $customer->quizResult->total_marks,
-                'correct_answers' => $customer->quizResult->correct_answers,
-                'wrong_answers' => $customer->quizResult->wrong_answers
-            ] : null,
+            'quiz_results' => [
+                'total_score' => $quizStats['total_score'],
+                'percentage' => $quizStats['percentage'],
+                'grade' => $quizStats['grade'],
+                'questions_count' => $quizStats['questions_count'],
+                'total_correct_answers' => $quizStats['total_correct_answers'] ?? 0,
+                'total_wrong_answers' => $quizStats['total_wrong_answers'] ?? 0,
+                'questions_details' => $quizStats['questions_details'] ?? []
+            ],
             'statistics' => [
                 'total_orders' => $customer->total_orders,
                 'completed_orders' => $customer->completed_orders,
@@ -197,7 +217,7 @@ class CustomerExportController extends Controller
      */
     private function getFilteredCustomers(Request $request)
     {
-        $query = Customer::with(['segment', 'quizResult']);
+        $query = Customer::with(['segment', 'employee', 'quizResults']);
 
         // Apply same filters as DataTable
         if ($request->has('search')) {
@@ -213,18 +233,27 @@ class CustomerExportController extends Controller
             $query->where('customer_segment_id', $request->segment_id);
         }
 
-        if ($request->has('min_score')) {
-            $query->where('score', '>=', $request->min_score);
-        }
-
-        if ($request->has('max_score')) {
-            $query->where('score', '<=', $request->max_score);
+        if ($request->has('employee_id')) {
+            if ($request->employee_id === 'unassigned') {
+                $query->whereNull('employee_id');
+            } else {
+                $query->where('employee_id', $request->employee_id);
+            }
         }
 
         // Sorting
-        $sortColumn = $request->get('sort_by', 'score');
+        $sortColumn = $request->get('sort_by', 'created_at');
         $sortDirection = $request->get('sort_direction', 'desc');
-        $query->orderBy($sortColumn, $sortDirection);
+        
+        if ($sortColumn === 'score') {
+            // ترتيب حسب Score
+            $query->leftJoin('quiz_results', 'customers.phone', '=', 'quiz_results.phone')
+                ->selectRaw('customers.*, SUM(quiz_results.user_marks) as calculated_score')
+                ->groupBy('customers.id')
+                ->orderBy('calculated_score', $sortDirection);
+        } else {
+            $query->orderBy($sortColumn, $sortDirection);
+        }
 
         return $query->get();
     }
@@ -253,12 +282,15 @@ class CustomerExportController extends Controller
 
         // Data
         foreach ($customers as $customer) {
+            $quizStats = $customer->quiz_stats;
+            
             $xml .= '<Row>';
             $xml .= '<Cell><Data ss:Type="Number">' . $customer->id . '</Data></Cell>';
             $xml .= '<Cell><Data ss:Type="String">' . htmlspecialchars($customer->name) . '</Data></Cell>';
             $xml .= '<Cell><Data ss:Type="String">' . htmlspecialchars($customer->email) . '</Data></Cell>';
             $xml .= '<Cell><Data ss:Type="String">' . htmlspecialchars($customer->phone) . '</Data></Cell>';
-            $xml .= '<Cell><Data ss:Type="Number">' . ($customer->score ?? 0) . '</Data></Cell>';
+            $xml .= '<Cell><Data ss:Type="Number">' . $quizStats['total_score'] . '</Data></Cell>';
+            $xml .= '<Cell><Data ss:Type="String">' . $quizStats['grade'] . '</Data></Cell>';
             $xml .= '<Cell><Data ss:Type="String">' . htmlspecialchars($customer->segment?->name ?? 'N/A') . '</Data></Cell>';
             $xml .= '<Cell><Data ss:Type="Number">' . $customer->total_orders . '</Data></Cell>';
             $xml .= '<Cell><Data ss:Type="Number">' . $customer->total_spent . '</Data></Cell>';

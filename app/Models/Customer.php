@@ -10,17 +10,15 @@ class Customer extends Model
 {
     protected $fillable = [
         'customer_segment_id',
-        'employee_id', // إضافة employee_id
+        'employee_id',
         'name',
         'email',
         'phone',
-        'address',
-        'score'
+        'address'
+        // تم إزالة score
     ];
 
-    protected $casts = [
-        'score' => 'decimal:2'
-    ];
+    // تم إزالة casts للـ score
 
     public function segment(): BelongsTo
     {
@@ -82,20 +80,68 @@ class Customer extends Model
             ->sum('paid_amount');
     }
 
-    // علاقة مع QuizResult
-    public function quizResult()
+    // علاقة مع QuizResult (عدة أسطر لنفس العميل)
+    public function quizResults()
     {
-        return $this->hasOne(QuizResult::class, 'phone', 'phone');
+        return $this->hasMany(QuizResult::class, 'phone', 'phone');
     }
 
-    // Scope للعملاء حسب النتيجة
+    // حساب Score من quiz_results ديناميكياً
+    public function getScoreAttribute(): float
+    {
+        if (!$this->phone) return 0;
+        return QuizResult::calculateTotalScoreByPhone($this->phone);
+    }
+
+    // حساب النسبة المئوية
+    public function getQuizPercentageAttribute(): float
+    {
+        if (!$this->phone) return 0;
+        return QuizResult::calculatePercentageByPhone($this->phone);
+    }
+
+    // الحصول على Grade
+    public function getQuizGradeAttribute(): string
+    {
+        if (!$this->phone) return 'N/A';
+        return QuizResult::getGradeByPhone($this->phone);
+    }
+
+    // عدد الأسئلة المجابة
+    public function getQuizQuestionsCountAttribute(): int
+    {
+        if (!$this->phone) return 0;
+        return QuizResult::getQuestionsCountByPhone($this->phone);
+    }
+
+    // إحصائيات الاختبار الكاملة
+    public function getQuizStatsAttribute(): array
+    {
+        if (!$this->phone) {
+            return [
+                'total_score' => 0,
+                'percentage' => 0,
+                'grade' => 'N/A',
+                'questions_count' => 0
+            ];
+        }
+        return QuizResult::getDetailedStatsByPhone($this->phone);
+    }
+
+    // Scope للعملاء حسب النتيجة (ديناميكي)
     public function scopeWithHighScore($query, $minScore = 70)
     {
-        return $query->where('score', '>=', $minScore);
+        return $query->whereHas('quizResults', function ($q) use ($minScore) {
+            $q->havingRaw('SUM(user_marks) >= ?', [$minScore]);
+        });
     }
 
     public function scopeOrderByScore($query, $direction = 'desc')
     {
-        return $query->orderBy('score', $direction);
+        // للترتيب حسب Score، نستخدم subquery
+        return $query->leftJoin('quiz_results', 'customers.phone', '=', 'quiz_results.phone')
+            ->selectRaw('customers.*, SUM(quiz_results.user_marks) as calculated_score')
+            ->groupBy('customers.id')
+            ->orderBy('calculated_score', $direction);
     }
 }

@@ -15,7 +15,7 @@ class CustomerDatatableController extends Controller
     public function index(Request $request)
     {
         // Query أساسي
-        $query = Customer::with(['segment', 'quizResult']);
+        $query = Customer::with(['segment', 'employee', 'quizResults']);
 
         // 1. البحث (Search)
         if ($request->has('search') && !empty($request->search)) {
@@ -33,13 +33,13 @@ class CustomerDatatableController extends Controller
             $query->where('customer_segment_id', $request->segment_id);
         }
 
-        // 3. التصفية حسب النتيجة (Score)
-        if ($request->has('min_score')) {
-            $query->where('score', '>=', $request->min_score);
-        }
-
-        if ($request->has('max_score')) {
-            $query->where('score', '<=', $request->max_score);
+        // 3. التصفية حسب الموظف
+        if ($request->has('employee_id')) {
+            if ($request->employee_id === 'unassigned') {
+                $query->whereNull('employee_id');
+            } else {
+                $query->where('employee_id', $request->employee_id);
+            }
         }
 
         // 4. التصفية حسب التاريخ
@@ -55,42 +55,55 @@ class CustomerDatatableController extends Controller
         $sortColumn = $request->get('sort_by', 'created_at');
         $sortDirection = $request->get('sort_direction', 'desc');
         
-        // التأكد من أن العمود موجود
-        $allowedSortColumns = ['id', 'name', 'email', 'phone', 'score', 'created_at'];
-        if (in_array($sortColumn, $allowedSortColumns)) {
-            $query->orderBy($sortColumn, $sortDirection);
+        // معالجة خاصة للترتيب حسب Score
+        if ($sortColumn === 'score') {
+            // استخدام subquery للترتيب حسب مجموع user_marks
+            $query->leftJoin('quiz_results', 'customers.phone', '=', 'quiz_results.phone')
+                ->selectRaw('customers.*, SUM(quiz_results.user_marks) as calculated_score')
+                ->groupBy('customers.id', 'customers.customer_segment_id', 'customers.employee_id', 
+                         'customers.name', 'customers.email', 'customers.phone', 'customers.address', 
+                         'customers.created_at', 'customers.updated_at')
+                ->orderBy('calculated_score', $sortDirection);
+        } else {
+            // الترتيب العادي
+            $allowedSortColumns = ['id', 'name', 'email', 'phone', 'created_at'];
+            if (in_array($sortColumn, $allowedSortColumns)) {
+                $query->orderBy($sortColumn, $sortDirection);
+            }
         }
 
-        // 6. عدد النتائج الكلي قبل الـ Pagination
-        $totalRecords = $query->count();
-
-        // 7. Pagination
+        // 6. Pagination
         $perPage = $request->get('per_page', 25);
-        $page = $request->get('page', 1);
-        
         $customers = $query->paginate($perPage);
 
-        // 8. إضافة بيانات إضافية لكل عميل
+        // 7. إضافة بيانات إضافية لكل عميل
         $data = $customers->getCollection()->map(function ($customer) {
+            // حساب Score ديناميكياً من quiz_results
+            $quizStats = $customer->quiz_stats;
+
             return [
                 'id' => $customer->id,
                 'name' => $customer->name,
                 'email' => $customer->email,
                 'phone' => $customer->phone,
                 'address' => $customer->address,
-                'score' => $customer->score,
                 'segment' => $customer->segment ? [
                     'id' => $customer->segment->id,
                     'name' => $customer->segment->name
                 ] : null,
-                'quiz_result' => $customer->quizResult ? [
-                    'user_marks' => $customer->quizResult->user_marks,
-                    'total_marks' => $customer->quizResult->total_marks,
-                    'percentage' => $customer->quizResult->percentage,
-                    'grade' => $customer->quizResult->grade,
-                    'correct_answers' => $customer->quizResult->correct_answers,
-                    'wrong_answers' => $customer->quizResult->wrong_answers
+                'employee' => $customer->employee ? [
+                    'id' => $customer->employee->id,
+                    'name' => $customer->employee->name,
+                    'position' => $customer->employee->position
                 ] : null,
+                'quiz_results' => [
+                    'total_score' => $quizStats['total_score'],
+                    'percentage' => $quizStats['percentage'],
+                    'grade' => $quizStats['grade'],
+                    'questions_count' => $quizStats['questions_count'],
+                    'total_correct_answers' => $quizStats['total_correct_answers'] ?? 0,
+                    'total_wrong_answers' => $quizStats['total_wrong_answers'] ?? 0
+                ],
                 'statistics' => [
                     'total_orders' => $customer->total_orders,
                     'total_spent' => $customer->total_spent,
@@ -116,8 +129,7 @@ class CustomerDatatableController extends Controller
             'filters' => [
                 'search' => $request->search,
                 'segment_id' => $request->segment_id,
-                'min_score' => $request->min_score,
-                'max_score' => $request->max_score,
+                'employee_id' => $request->employee_id,
                 'date_from' => $request->date_from,
                 'date_to' => $request->date_to,
                 'sort_by' => $sortColumn,
@@ -133,12 +145,16 @@ class CustomerDatatableController extends Controller
     {
         $customer = Customer::with([
             'segment',
-            'quizResult',
+            'employee',
+            'quizResults', // تغيير من quizResult إلى quizResults
             'orders.items.service',
             'orders' => function ($query) {
                 $query->latest();
             }
         ])->findOrFail($id);
+
+        // حساب إحصائيات الاختبار
+        $quizStats = $customer->quiz_stats;
 
         return response()->json([
             'success' => true,
@@ -149,22 +165,25 @@ class CustomerDatatableController extends Controller
                     'email' => $customer->email,
                     'phone' => $customer->phone,
                     'address' => $customer->address,
-                    'score' => $customer->score,
                     'created_at' => $customer->created_at,
                     'updated_at' => $customer->updated_at
                 ],
                 'segment' => $customer->segment,
-                'quiz_result' => $customer->quizResult ? [
-                    'id' => $customer->quizResult->id,
-                    'survey_id' => $customer->quizResult->survey_id,
-                    'user_marks' => $customer->quizResult->user_marks,
-                    'total_marks' => $customer->quizResult->total_marks,
-                    'percentage' => $customer->quizResult->percentage,
-                    'grade' => $customer->quizResult->grade,
-                    'correct_answers' => $customer->quizResult->correct_answers,
-                    'wrong_answers' => $customer->quizResult->wrong_answers,
-                    'created_at' => $customer->quizResult->created_at
+                'employee' => $customer->employee ? [
+                    'id' => $customer->employee->id,
+                    'name' => $customer->employee->name,
+                    'position' => $customer->employee->position,
+                    'department' => $customer->employee->department
                 ] : null,
+                'quiz_results' => [
+                    'total_score' => $quizStats['total_score'],
+                    'percentage' => $quizStats['percentage'],
+                    'grade' => $quizStats['grade'],
+                    'questions_count' => $quizStats['questions_count'],
+                    'total_correct_answers' => $quizStats['total_correct_answers'] ?? 0,
+                    'total_wrong_answers' => $quizStats['total_wrong_answers'] ?? 0,
+                    'questions_details' => $quizStats['questions_details'] ?? []
+                ],
                 'statistics' => [
                     'total_orders' => $customer->total_orders,
                     'completed_orders' => $customer->completed_orders,
@@ -203,65 +222,81 @@ class CustomerDatatableController extends Controller
 
     /**
      * Update Customer Score from Quiz Result
+     * ملاحظة: Score الآن يُحسب ديناميكياً، هذا الـ endpoint للمعلومات فقط
      */
     public function syncScoreFromQuiz($id)
     {
         $customer = Customer::findOrFail($id);
         
-        // البحث عن نتيجة الاختبار بنفس رقم الهاتف
-        $quizResult = QuizResult::where('phone', $customer->phone)
-            ->latest()
-            ->first();
-
-        if (!$quizResult) {
+        if (!$customer->phone) {
             return response()->json([
                 'success' => false,
-                'message' => 'No quiz result found for this customer'
+                'message' => 'Customer does not have a phone number'
+            ], 400);
+        }
+
+        // حساب النتيجة من quiz_results
+        $quizStats = $customer->quiz_stats;
+
+        if ($quizStats['questions_count'] === 0) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No quiz results found for this customer'
             ], 404);
         }
 
-        // تحديث النتيجة
-        $customer->score = $quizResult->percentage;
-        $customer->save();
-
         return response()->json([
             'success' => true,
-            'message' => 'Score synced successfully',
+            'message' => 'Score calculated successfully',
             'data' => [
                 'customer_id' => $customer->id,
-                'score' => $customer->score,
-                'quiz_percentage' => $quizResult->percentage,
-                'grade' => $quizResult->grade
+                'customer_name' => $customer->name,
+                'phone' => $customer->phone,
+                'quiz_results' => $quizStats
             ]
         ]);
     }
 
     /**
      * Sync All Customers Scores from Quiz Results
+     * ملاحظة: Score الآن يُحسب ديناميكياً، هذا للمعلومات فقط
      */
     public function syncAllScores()
     {
-        $updated = 0;
         $customers = Customer::whereNotNull('phone')->get();
+        $withResults = 0;
+        $withoutResults = 0;
+
+        $summary = [];
 
         foreach ($customers as $customer) {
-            $quizResult = QuizResult::where('phone', $customer->phone)
-                ->latest()
-                ->first();
-
-            if ($quizResult) {
-                $customer->score = $quizResult->percentage;
-                $customer->save();
-                $updated++;
+            $quizStats = $customer->quiz_stats;
+            
+            if ($quizStats['questions_count'] > 0) {
+                $withResults++;
+                $summary[] = [
+                    'customer_id' => $customer->id,
+                    'name' => $customer->name,
+                    'phone' => $customer->phone,
+                    'score' => $quizStats['total_score'],
+                    'grade' => $quizStats['grade']
+                ];
+            } else {
+                $withoutResults++;
             }
         }
 
         return response()->json([
             'success' => true,
-            'message' => "Synced scores for {$updated} customers",
+            'message' => 'Scores calculated for all customers',
             'data' => [
                 'total_customers' => $customers->count(),
-                'updated_customers' => $updated
+                'with_quiz_results' => $withResults,
+                'without_quiz_results' => $withoutResults,
+                'top_10_customers' => collect($summary)
+                    ->sortByDesc('score')
+                    ->take(10)
+                    ->values()
             ]
         ]);
     }
@@ -271,33 +306,47 @@ class CustomerDatatableController extends Controller
      */
     public function statistics()
     {
+        // حساب الإحصائيات باستخدام Scores الديناميكية
+        $customers = Customer::with('quizResults')->get();
+        
+        $customersWithScore = $customers->filter(function ($customer) {
+            return $customer->quiz_questions_count > 0;
+        });
+
+        $scores = $customersWithScore->pluck('score')->filter();
+
         $stats = [
-            'total_customers' => Customer::count(),
-            'customers_with_score' => Customer::whereNotNull('score')->count(),
-            'average_score' => Customer::whereNotNull('score')->avg('score'),
-            'highest_score' => Customer::whereNotNull('score')->max('score'),
-            'lowest_score' => Customer::whereNotNull('score')->min('score'),
-            'total_revenue' => Customer::sum(DB::raw('(SELECT SUM(total) FROM orders WHERE orders.customer_id = customers.id)')),
+            'total_customers' => $customers->count(),
+            'customers_with_quiz_results' => $customersWithScore->count(),
+            'customers_without_quiz_results' => $customers->count() - $customersWithScore->count(),
+            'average_score' => $scores->isNotEmpty() ? round($scores->avg(), 2) : 0,
+            'highest_score' => $scores->isNotEmpty() ? $scores->max() : 0,
+            'lowest_score' => $scores->isNotEmpty() ? $scores->min() : 0,
+            'total_revenue' => $customers->sum(function ($customer) {
+                return $customer->total_spent;
+            }),
             'score_distribution' => [
-                'excellent' => Customer::where('score', '>=', 90)->count(),  // A+
-                'very_good' => Customer::whereBetween('score', [80, 89])->count(), // A, B+
-                'good' => Customer::whereBetween('score', [70, 79])->count(), // B, C+
-                'average' => Customer::whereBetween('score', [60, 69])->count(), // C, D
-                'poor' => Customer::where('score', '<', 60)->count() // F
+                'excellent' => $customersWithScore->filter(fn($c) => $c->score >= 90)->count(),
+                'very_good' => $customersWithScore->filter(fn($c) => $c->score >= 80 && $c->score < 90)->count(),
+                'good' => $customersWithScore->filter(fn($c) => $c->score >= 70 && $c->score < 80)->count(),
+                'average' => $customersWithScore->filter(fn($c) => $c->score >= 60 && $c->score < 70)->count(),
+                'poor' => $customersWithScore->filter(fn($c) => $c->score < 60)->count()
             ],
-            'top_customers' => Customer::with('segment')
-                ->orderByScore('desc')
-                ->limit(10)
-                ->get()
+            'top_customers' => $customersWithScore
+                ->sortByDesc('score')
+                ->take(10)
                 ->map(function ($customer) {
                     return [
                         'id' => $customer->id,
                         'name' => $customer->name,
                         'score' => $customer->score,
+                        'grade' => $customer->quiz_grade,
+                        'questions_answered' => $customer->quiz_questions_count,
                         'total_spent' => $customer->total_spent,
                         'segment' => $customer->segment?->name
                     ];
                 })
+                ->values()
         ];
 
         return response()->json([
