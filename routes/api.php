@@ -40,9 +40,9 @@ Route::middleware('api')->prefix('v1')->group(function () {
     Route::apiResource('emails', EmailController::class)
         ->only(['store', 'destroy']);
     Route::put('/emails/{id}/read', [EmailController::class, 'markAsRead']);
-});
 
 
+    
 // Services Routes
 Route::prefix('services')->group(function () {
     Route::get('/', [ServiceController::class, 'index']); // GET /api/services
@@ -197,3 +197,5 @@ Route::prefix('admin/customer-assignment')->group(function () {
     Route::get('/overview', [CustomerAssignmentController::class, 'assignmentOverview']); 
     // GET /api/admin/customer-assignment/overview
 });
+});
+
