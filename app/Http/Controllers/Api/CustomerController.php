@@ -13,7 +13,7 @@ class CustomerController extends Controller
      */
     public function index()
     {
-        $customers = Customer::with(['segment', 'progress'])
+        $customers = Customer::with(['segment','employee', 'progress'])
             ->orderBy('created_at', 'desc')
             ->paginate(15);
 
