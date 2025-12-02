@@ -6,6 +6,9 @@ use App\Models\Email;
 use App\Models\Customer;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Mail;
+use App\Mail\CrmEmail;
+
 
 class EmailController extends Controller
 {
@@ -29,35 +32,78 @@ class EmailController extends Controller
     /**
      * Store a new email
      */
+       /**
+     * Store a new email
+     */
     public function store(Request $request)
-    {
-        $validated = $request->validate([
-            'customer_id' => 'required|exists:customers,id',
-            'email_type' => 'required|in:incoming,outgoing',
-            'from_email' => 'required|email',
-            'to_email' => 'required|email',
-            'cc_email' => 'nullable|email',
-            'bcc_email' => 'nullable|email',
-            'subject' => 'required|string|max:255',
-            'body' => 'required|string',
-            'priority' => 'nullable|in:low,normal,high'
-        ]);
+{
+    $validated = $request->validate([
+        'customer_id' => 'required|exists:customers,id',
+        'email_type' => 'required|in:incoming,outgoing',
+        'from_email' => 'required|email',
+        'to_email' => 'required|email',
+        'cc_email' => 'nullable|email',
+        'bcc_email' => 'nullable|email',
+        'subject' => 'required|string|max:255',
+        'body' => 'required|string',
+        'priority' => 'nullable|in:low,normal,high'
+    ]);
 
-        $validated['created_by'] = auth()->id() ?? 1;
-        $validated['status'] = $validated['email_type'] === 'outgoing' ? 'sent' : 'received';
+    $validated['created_by'] = auth()->id() ?? 1;
 
-        if ($validated['email_type'] === 'outgoing') {
-            $validated['sent_at'] = now();
+    // قيم مبدئية
+    $status = $validated['email_type'] === 'outgoing' ? 'sent' : 'received';
+    $sentAt = null;
+
+    if ($validated['email_type'] === 'outgoing') {
+        try {
+            $mail = Mail::to($validated['to_email']);
+
+            if (!empty($validated['cc_email'])) {
+                $mail->cc($validated['cc_email']);
+            }
+
+            if (!empty($validated['bcc_email'])) {
+                $mail->bcc($validated['bcc_email']);
+            }
+
+            $mail->send(new CrmEmail(
+                $validated['subject'],
+                $validated['body']
+            ));
+
+            $sentAt = now();
+            $status = 'sent';
+
+        } catch (\Throwable $e) {
+            \Log::error('SMTP email sending failed', [
+                'error' => $e->getMessage(),
+                'to' => $validated['to_email'],
+            ]);
+
+            // 🔴 رجعنا Error وما خزّنا شي بالداتابيس
+            return response()->json([
+                'success' => false,
+                'message' => 'فشل إرسال الإيميل عبر SMTP',
+                'error'   => $e->getMessage(),
+            ], 500);
         }
-
-        $email = Email::create($validated);
-
-        return response()->json([
-            'success' => true,
-            'message' => 'Email sent successfully',
-            'data' => $email
-        ], 201);
     }
+
+    $validated['status'] = $status;
+    $validated['sent_at'] = $sentAt;
+
+    $email = Email::create($validated);
+
+    return response()->json([
+        'success' => true,
+        'message' => $status === 'sent'
+            ? 'Email sent and stored successfully'
+            : 'Email stored successfully',
+        'data' => $email
+    ], 201);
+}
+
 
     /**
      * Mark email as read

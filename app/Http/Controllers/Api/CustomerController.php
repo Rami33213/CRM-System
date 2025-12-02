@@ -34,7 +34,7 @@ class CustomerController extends Controller
      */
     public function show($id)
     {
-        $customer = Customer::with(['segment', 'progress'])
+        $customer = Customer::with(['segment', 'employee','progress'])
             ->findOrFail($id);
 
         return response()->json([

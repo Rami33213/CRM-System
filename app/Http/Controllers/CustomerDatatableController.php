@@ -6,6 +6,7 @@ use App\Models\Customer;
 use App\Models\QuizResult;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Yajra\DataTables\Facades\DataTables;
 
 class CustomerDatatableController extends Controller
 {
@@ -17,81 +18,80 @@ class CustomerDatatableController extends Controller
         // Query أساسي
         $query = Customer::with(['segment', 'employee', 'quizResults']);
 
-        // 1. البحث (Search)
-        if ($request->has('search') && !empty($request->search)) {
-            $search = $request->search;
-            $query->where(function ($q) use ($search) {
-                $q->where('name', 'LIKE', "%{$search}%")
-                  ->orWhere('email', 'LIKE', "%{$search}%")
-                  ->orWhere('phone', 'LIKE', "%{$search}%")
-                  ->orWhere('address', 'LIKE', "%{$search}%");
-            });
-        }
+        // استخدام DataTables للسيرفر سايد
+        return DataTables::eloquent($query)
+            // 1. البحث (Search)
+            ->filter(function ($q) use ($request) {
+                if ($request->has('search') && !empty($request->search)) {
+                    $search = $request->search;
+                    $q->where(function ($qq) use ($search) {
+                        $qq->where('name', 'LIKE', "%{$search}%")
+                           ->orWhere('email', 'LIKE', "%{$search}%")
+                           ->orWhere('phone', 'LIKE', "%{$search}%")
+                           ->orWhere('address', 'LIKE', "%{$search}%");
+                    });
+                }
 
-        // 2. التصفية حسب الـ Segment
-        if ($request->has('segment_id') && !empty($request->segment_id)) {
-            $query->where('customer_segment_id', $request->segment_id);
-        }
+                // 2. التصفية حسب الـ Segment
+                if ($request->has('segment_id') && !empty($request->segment_id)) {
+                    $q->where('customer_segment_id', $request->segment_id);
+                }
 
-        // 3. التصفية حسب الموظف
-        if ($request->has('employee_id')) {
-            if ($request->employee_id === 'unassigned') {
-                $query->whereNull('employee_id');
-            } else {
-                $query->where('employee_id', $request->employee_id);
-            }
-        }
+                // 3. التصفية حسب الموظف
+                if ($request->has('employee_id')) {
+                    if ($request->employee_id === 'unassigned') {
+                        $q->whereNull('employee_id');
+                    } else {
+                        $q->where('employee_id', $request->employee_id);
+                    }
+                }
 
-        // 4. التصفية حسب التاريخ
-        if ($request->has('date_from')) {
-            $query->whereDate('created_at', '>=', $request->date_from);
-        }
+                // 4. التصفية حسب التاريخ
+                if ($request->has('date_from')) {
+                    $q->whereDate('created_at', '>=', $request->date_from);
+                }
 
-        if ($request->has('date_to')) {
-            $query->whereDate('created_at', '<=', $request->date_to);
-        }
+                if ($request->has('date_to')) {
+                    $q->whereDate('created_at', '<=', $request->date_to);
+                }
+            })
+            // 5. الترتيب (Sorting) بما فيها حالة الـ score الخاصة
+            ->order(function ($q) use ($request) {
+                $sortColumn = $request->get('sort_by', 'created_at');
+                $sortDirection = $request->get('sort_direction', 'desc');
 
-        // 5. الترتيب (Sorting)
-        $sortColumn = $request->get('sort_by', 'created_at');
-        $sortDirection = $request->get('sort_direction', 'desc');
-        
-        // معالجة خاصة للترتيب حسب Score
-        if ($sortColumn === 'score') {
-            // استخدام subquery للترتيب حسب مجموع user_marks
-            $query->leftJoin('quiz_results', 'customers.phone', '=', 'quiz_results.phone')
-                ->selectRaw('customers.*, SUM(quiz_results.user_marks) as calculated_score')
-                ->groupBy('customers.id', 'customers.customer_segment_id', 'customers.employee_id', 
-                         'customers.name', 'customers.email', 'customers.phone', 'customers.address', 
-                         'customers.created_at', 'customers.updated_at')
-                ->orderBy('calculated_score', $sortDirection);
-        } else {
-            // الترتيب العادي
-            $allowedSortColumns = ['id', 'name', 'email', 'phone', 'created_at'];
-            if (in_array($sortColumn, $allowedSortColumns)) {
-                $query->orderBy($sortColumn, $sortDirection);
-            }
-        }
-
-        // 6. Pagination
-        $perPage = $request->get('per_page', 25);
-        $customers = $query->paginate($perPage);
-
-        // 7. إضافة بيانات إضافية لكل عميل
-        $data = $customers->getCollection()->map(function ($customer) {
-            // حساب Score ديناميكياً من quiz_results
-            $quizStats = $customer->quiz_stats;
-
-            return [
-                'id' => $customer->id,
-                'name' => $customer->name,
-                'email' => $customer->email,
-                'phone' => $customer->phone,
-                'address' => $customer->address,
-                'segment' => $customer->segment ? [
+                if ($sortColumn === 'score') {
+                    // استخدام subquery للترتيب حسب مجموع user_marks
+                    $q->leftJoin('quiz_results', 'customers.phone', '=', 'quiz_results.phone')
+                        ->selectRaw('customers.*, SUM(quiz_results.user_marks) as calculated_score')
+                        ->groupBy(
+                            'customers.id',
+                            'customers.customer_segment_id',
+                            'customers.employee_id',
+                            'customers.name',
+                            'customers.email',
+                            'customers.phone',
+                            'customers.address',
+                            'customers.created_at',
+                            'customers.updated_at'
+                        )
+                        ->orderBy('calculated_score', $sortDirection);
+                } else {
+                    $allowedSortColumns = ['id', 'name', 'email', 'phone', 'created_at'];
+                    if (in_array($sortColumn, $allowedSortColumns)) {
+                        $q->orderBy($sortColumn, $sortDirection);
+                    }
+                }
+            })
+            // 7. إضافة بيانات إضافية لكل عميل (نفس التركيب السابق)
+            ->addColumn('segment', function ($customer) {
+                return $customer->segment ? [
                     'id' => $customer->segment->id,
                     'name' => $customer->segment->name
-                ] : null,
-                'employee' => $customer->employee ? [
+                ] : null;
+            })
+            ->addColumn('employee', function ($customer) {
+                return $customer->employee ? [
                     'id' => $customer->employee->id,
                     'name' => $customer->employee->name,
                     'position' => $customer->employee->position,
@@ -101,47 +101,35 @@ class CustomerDatatableController extends Controller
                     'name' => null,
                     'position' => null,
                     'status' => 'unassigned'
-                ],
-                'quiz_results' => [
+                ];
+            })
+            ->addColumn('quiz_results', function ($customer) {
+                $quizStats = $customer->quiz_stats;
+
+                return [
                     'total_score' => $quizStats['total_score'],
                     'percentage' => $quizStats['percentage'],
                     'grade' => $quizStats['grade'],
                     'questions_count' => $quizStats['questions_count'],
                     'total_correct_answers' => $quizStats['total_correct_answers'] ?? 0,
                     'total_wrong_answers' => $quizStats['total_wrong_answers'] ?? 0
-                ],
-                'statistics' => [
+                ];
+            })
+            ->addColumn('statistics', function ($customer) {
+                return [
                     'total_orders' => $customer->total_orders,
                     'total_spent' => $customer->total_spent,
                     'pending_orders' => $customer->pending_orders,
                     'unpaid_amount' => $customer->unpaid_amount
-                ],
-                'created_at' => $customer->created_at,
-                'updated_at' => $customer->updated_at
-            ];
-        });
-
-        return response()->json([
-            'success' => true,
-            'data' => $data,
-            'pagination' => [
-                'current_page' => $customers->currentPage(),
-                'per_page' => $customers->perPage(),
-                'total' => $customers->total(),
-                'last_page' => $customers->lastPage(),
-                'from' => $customers->firstItem(),
-                'to' => $customers->lastItem()
-            ],
-            'filters' => [
-                'search' => $request->search,
-                'segment_id' => $request->segment_id,
-                'employee_id' => $request->employee_id,
-                'date_from' => $request->date_from,
-                'date_to' => $request->date_to,
-                'sort_by' => $sortColumn,
-                'sort_direction' => $sortDirection
-            ]
-        ]);
+                ];
+            })
+            ->addColumn('created_at', function ($customer) {
+                return $customer->created_at;
+            })
+            ->addColumn('updated_at', function ($customer) {
+                return $customer->updated_at;
+            })
+            ->toJson();
     }
 
     /**

@@ -14,6 +14,7 @@ use App\Http\Controllers\CustomerExportController;
 use App\Http\Controllers\EmployeeController;
 use App\Http\Controllers\CustomerAssignmentController;
 
+
 Route::middleware('api')->prefix('v1')->group(function () {
     // Customer Routes
     Route::apiResource('customers', CustomerController::class);

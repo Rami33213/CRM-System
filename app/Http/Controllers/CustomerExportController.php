@@ -8,9 +8,7 @@ use Illuminate\Support\Facades\Response;
 
 class CustomerExportController extends Controller
 {
-    /**
-     * Export Customers to CSV
-     */
+    
     public function exportCSV(Request $request)
     {
         $customers = $this->getFilteredCustomers($request);
