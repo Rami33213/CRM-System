@@ -13,6 +13,8 @@ use App\Http\Controllers\CustomerDatatableController;
 use App\Http\Controllers\CustomerExportController;
 use App\Http\Controllers\EmployeeController;
 use App\Http\Controllers\CustomerAssignmentController;
+use App\Http\Controllers\tag\TagController;
+use App\Http\Controllers\tag\CustomerTagController;
 
 
 Route::middleware('api')->prefix('v1')->group(function () {
@@ -198,5 +200,100 @@ Route::prefix('admin/customer-assignment')->group(function () {
     Route::get('/overview', [CustomerAssignmentController::class, 'assignmentOverview']); 
     // GET /api/admin/customer-assignment/overview
 });
+
+
+
+/*
+|--------------------------------------------------------------------------
+| Tags Routes
+|--------------------------------------------------------------------------
+*/
+
+Route::prefix('tags')->group(function () {
+    
+    // CRUD للتاغات
+    Route::get('/', [TagController::class, 'index']); 
+    // GET /api/tags - Get all tags
+    
+    Route::post('/', [TagController::class, 'store']); 
+    // POST /api/tags - Create new tag
+    
+    Route::get('/{id}', [TagController::class, 'show']); 
+    // GET /api/tags/{id} - Get tag details with customers
+    
+    Route::put('/{id}', [TagController::class, 'update']); 
+    // PUT /api/tags/{id} - Update tag
+    
+    Route::delete('/{id}', [TagController::class, 'destroy']); 
+    // DELETE /api/tags/{id} - Delete tag
+    
+    // Additional Endpoints
+    Route::get('/popular/list', [TagController::class, 'popular']); 
+    // GET /api/tags/popular/list - Get popular tags
+    
+    Route::post('/bulk-delete', [TagController::class, 'bulkDestroy']); 
+    // POST /api/tags/bulk-delete - Delete multiple tags
+});
+
+/*
+|--------------------------------------------------------------------------
+| Customer Tags Routes
+|--------------------------------------------------------------------------
+*/
+
+Route::prefix('customers')->group(function () {
+    
+    // Get Customer's Tags
+    Route::get('/{customerId}/tags', [CustomerTagController::class, 'index']); 
+    // GET /api/customers/{customerId}/tags
+    
+    // Attach Tag to Customer
+    Route::post('/{customerId}/tags', [CustomerTagController::class, 'attach']); 
+    // POST /api/customers/{customerId}/tags
+    // Body: { tag_id: 1 }
+    
+    // Attach Multiple Tags
+    Route::post('/{customerId}/tags/attach-multiple', [CustomerTagController::class, 'attachMultiple']); 
+    // POST /api/customers/{customerId}/tags/attach-multiple
+    // Body: { tag_ids: [1, 2, 3] }
+    
+    // Detach Tag from Customer
+    Route::delete('/{customerId}/tags/{tagId}', [CustomerTagController::class, 'detach']); 
+    // DELETE /api/customers/{customerId}/tags/{tagId}
+    
+    // Sync Tags (استبدال كل التاغات)
+    Route::put('/{customerId}/tags/sync', [CustomerTagController::class, 'sync']); 
+    // PUT /api/customers/{customerId}/tags/sync
+    // Body: { tag_ids: [1, 2, 3] }
+    
+    // Detach All Tags
+    Route::delete('/{customerId}/tags', [CustomerTagController::class, 'detachAll']); 
+    // DELETE /api/customers/{customerId}/tags
+    
+    // Create Tag and Attach (في خطوة واحدة)
+    Route::post('/{customerId}/tags/create-and-attach', [CustomerTagController::class, 'createAndAttach']); 
+    // POST /api/customers/{customerId}/tags/create-and-attach
+    // Body: { name: "ويب سايت أخضر", color: "#22C55E" }
+});
+
+/*
+|--------------------------------------------------------------------------
+| Search by Tags Routes
+|--------------------------------------------------------------------------
+*/
+
+Route::prefix('search')->group(function () {
+    
+    // Search Customers by Tag
+    Route::get('/customers-by-tag', [CustomerTagController::class, 'searchByTag']); 
+    // GET /api/search/customers-by-tag?tag_id=1
+    // GET /api/search/customers-by-tag?tag_name=ويب سايت
+    // GET /api/search/customers-by-tag?tag_ids[]=1&tag_ids[]=2
+    
+    // Search Customers by ALL Tags (AND logic)
+    Route::get('/customers-by-all-tags', [CustomerTagController::class, 'searchByAllTags']); 
+    // GET /api/search/customers-by-all-tags?tag_ids[]=1&tag_ids[]=2
+});
+
 });
 

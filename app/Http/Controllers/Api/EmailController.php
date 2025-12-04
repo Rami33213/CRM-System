@@ -81,7 +81,6 @@ class EmailController extends Controller
                 'to' => $validated['to_email'],
             ]);
 
-            // 🔴 رجعنا Error وما خزّنا شي بالداتابيس
             return response()->json([
                 'success' => false,
                 'message' => 'فشل إرسال الإيميل عبر SMTP',
